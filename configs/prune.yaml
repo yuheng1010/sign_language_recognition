@@ -1,0 +1,71 @@
+model:
+  input_path: "./best_videomae_wlasl_student_kd_100.pth"
+  output_path: "./best_videomae_wlasl_student_pruned_100.pth"
+  model_type: "mobilevit"
+  num_classes: 100  
+
+data:
+  root_dir: "./wlasl_data/videos"
+  json_file: "./wlasl_data/nslt_100.json"
+  eval_samples: 1000 
+
+pruning:
+  method: "iterative"  # iterative, global, layer_wise
+  target_sparsity: 0.3  
+  iterations: 3      
+
+
+  global:
+    pruning_method: "l1_unstructured"  # l1_unstructured, l2_unstructured, random_unstructured
+    amount: 0.3
+
+
+  layer_wise:
+    enabled: false
+    layers:
+      # 為特定層設置不同的剪枝比例
+      # "backbone.layer.0": 0.2
+      # "backbone.layer.1": 0.3
+
+
+  iterative:
+    enabled: true
+    iterations: 3
+    fine_tune_epochs: 5  
+    fine_tune_lr: 1e-5
+
+
+fine_tune:
+  enabled: true
+  epochs: 5
+  learning_rate: 0.00001
+  weight_decay: 0.0001
+  batch_size: 16
+
+
+evaluation:
+  metrics: ["accuracy", "sparsity", "compression_ratio"]
+  top_k: [1, 5]
+  detailed_report: true
+
+
+strategy:
+  preserve_first_last: true  
+  preserve_classifier: true  
+  min_sparsity: 0.1         
+  max_sparsity: 0.8         
+
+
+device: "auto"
+
+
+logging:
+  log_dir: "./logs/pruning"
+  save_masks: true     
+  save_statistics: true 
+
+
+compression:
+  target_size_mb: null  
+  target_flops: null    
+  max_accuracy_drop: 0.05  

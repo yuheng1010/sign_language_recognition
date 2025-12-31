@@ -1,0 +1,55 @@
+data:
+  root_dir: "./wlasl_data/videos"
+  json_file: "./wlasl_data/nslt_100.json"  
+  label_file: "./wlasl_data/wlasl_class_list.txt"
+
+model:
+  name: "MCG-NJU/videomae-base-finetuned-kinetics"
+  num_classes: 100  
+  pretrained: true
+
+input:
+  num_frames: 16    
+  img_size: 224     
+  num_channels: 3   
+
+training:
+  epochs: 50
+  batch_size: 8      
+  learning_rate: 0.0001
+  weight_decay: 0.05
+  warmup_epochs: 5
+  scheduler: "cosine"  # cosine 或 linear
+
+optimizer:
+  name: "adamw"
+  betas: [0.9, 0.999]
+  eps: 0.00000001
+
+augmentation:
+  random_crop: true
+  random_flip: false  
+  color_jitter: false 
+  normalize: true
+
+evaluation:
+  top_k: [1, 5] 
+
+device: "auto"  
+
+save:
+  model_path: "./best_videomae_wlasl_teacher_100.pth"
+  checkpoint_freq: 10 
+  save_optimizer: true
+  save_scheduler: true
+
+logging:
+  log_dir: "./logs/teacher"
+  log_freq: 10 
+  save_freq: 50 
+
+validation:
+  freq: 1 
+  early_stopping:
+    patience: 10
+    min_delta: 0.001

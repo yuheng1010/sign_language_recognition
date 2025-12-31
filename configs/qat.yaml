@@ -1,0 +1,88 @@
+model:
+  input_path: "./best_videomae_wlasl_student_pruned_100.pth"  
+  output_path: "./best_videomae_wlasl_student_qat_100.pth"
+  model_type: "mobilevit"
+  num_classes: 100
+
+quantization:
+  backend: "fbgemm"     # fbgemm (x86), qnnpack (ARM)
+  dtype: "qint8"       
+  scheme: "per_channel" # per_channel || per_tensor
+
+
+  qat:
+    enabled: true
+    qconfig_name: "default"  
+
+  observer:
+    type: "moving_average_min_max"  
+    quant_min: -128
+    quant_max: 127
+
+data:
+  root_dir: "./wlasl_data/videos"
+  json_file: "./wlasl_data/nslt_100.json"
+  calibration_samples: 1000  
+  eval_samples: 2000       
+
+training:
+  epochs: 10          
+  batch_size: 32      
+  learning_rate: 1e-5 
+  weight_decay: 1e-4
+
+optimizer:
+  name: "adamw"
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+scheduler:
+  type: "cosine"
+  warmup_epochs: 1
+
+fusion:
+  enabled: true
+  layers:
+    - ["conv", "bn", "relu"]  
+    - ["conv", "bn"]         
+    - ["linear", "relu"]     
+
+evaluation:
+  metrics: ["accuracy", "latency", "model_size"]
+  top_k: [1, 5]
+  compare_with_fp32: true  
+
+benchmark:
+  enabled: true
+  batch_sizes: [1, 4, 8, 16, 32]
+  num_runs: 100
+  warmup_runs: 10
+
+device: "auto"
+
+save:
+  model_path: "./best_videomae_wlasl_student_qat.pth"
+  save_quantized: true    
+  save_scripted: true     
+  save_onnx: false        
+
+logging:
+  log_dir: "./logs/qat"
+  log_freq: 10
+  plot_calibration: true  
+
+
+compression:
+  target_accuracy_drop: 0.02  
+  min_compression_ratio: 2.0  
+
+deployment:
+  torchscript: true      
+  onnx: false          
+  tensorrt: false       
+  coreml: false         
+
+testing:
+  enabled: true
+  test_dataset: "val"  
+  save_predictions: false 

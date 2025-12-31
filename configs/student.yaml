@@ -1,0 +1,74 @@
+data:
+  root_dir: "./wlasl_data/videos"
+  json_file: "./wlasl_data/nslt_100.json"  
+  label_file: "./wlasl_data/wlasl_class_list.txt"
+
+
+model:
+  teacher_path: "./best_videomae_wlasl_teacher_100.pth"  
+  student_model: "apple/mobilevit-small"
+  num_classes: 100  
+
+
+distillation:
+  temperature: 4.0     
+  alpha: 0.5          
+  loss_type: "kl_div" 
+
+input:
+  num_frames: 16
+  img_size: 224
+  num_channels: 3
+
+
+training:
+  epochs: 30
+  batch_size: 4       
+  learning_rate: 0.0002 
+  weight_decay: 0.01
+  warmup_epochs: 3
+  scheduler: "cosine"
+
+
+optimizer:
+  name: "adamw"
+  betas: [0.9, 0.999]
+  eps: 1e-8
+
+augmentation:
+  random_crop: true
+  random_flip: false
+  color_jitter: true  
+  normalize: true
+
+sampling:
+  balanced: true      
+  weights: "auto"     
+
+evaluation:
+  top_k: [1, 5]
+  metrics: ["accuracy", "precision", "recall", "f1"]
+
+device: "auto"
+
+save:
+  model_path: "./best_videomae_wlasl_student_kd_100.pth"
+  checkpoint_freq: 5
+  save_optimizer: true
+  save_scheduler: true
+
+logging:
+  log_dir: "./logs/student_kd"
+  log_freq: 20
+  save_freq: 100
+
+validation:
+  freq: 1
+  early_stopping:
+    patience: 8
+    min_delta: 0.001
+
+kd_config:
+  teacher_eval_mode: true  
+  intermediate_matching: false  
+  hint_layer: null  
