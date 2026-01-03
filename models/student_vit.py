@@ -1,12 +1,7 @@
-import torch
 import torch.nn as nn
 from transformers import MobileViTForImageClassification
 
 class StudentViT(nn.Module):
-    """
-    學生模型：MobileViT with temporal pooling for video input
-    將video輸入 (batch, frames, channels, height, width) 轉換為圖像輸入
-    """
     def __init__(self, num_classes=2000, num_frames=16):
         super(StudentViT, self).__init__()
         self.backbone = MobileViTForImageClassification.from_pretrained(
@@ -18,13 +13,6 @@ class StudentViT(nn.Module):
         # self.temporal_transformer = nn.TransformerEncoder(encoder_layer, num_layers=2)
 
     def forward(self, x):
-        """
-        處理video輸入
-        Args:
-            x: video張量 (batch_size, num_frames, channels, height, width)
-        Returns:
-            模型輸出
-        """
         batch_size, num_frames, c, h, w = x.shape
         x = x.view(batch_size * num_frames, c, h, w)
 

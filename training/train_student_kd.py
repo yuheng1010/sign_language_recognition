@@ -10,10 +10,23 @@ import argparse
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_pro.dataset import WLASLDataset
-from models.videomae import VideoMAE
 from models.student_vit import StudentViT
-from models.distillation import DistillationTrainer
+from models.distillation import DistillationTrainer, DSLNetWrapper
 from data_pro.sampler import BalancedSampler
+
+try:
+    from models.videomae import VideoMAE
+    VIDEOMAE_AVAILABLE = True
+except ImportError:
+    VIDEOMAE_AVAILABLE = False
+    print("警告: VideoMAE 模型不可用")
+    
+try:
+    from models.teacher import DSLNet
+    DSLNET_AVAILABLE = True
+except ImportError:
+    DSLNET_AVAILABLE = False
+    print("警告: DSLNet 模型不可用")
 
 def load_config(config_path):
     with open(config_path, 'r', encoding='utf-8') as f:
@@ -29,12 +42,33 @@ def get_device(device_config):
             return "cpu"
     return device_config
 
-def load_teacher_model(model_path, num_classes=2000):
+def load_teacher_model(model_path, num_classes=2000, model_type='auto'):
+
     print(f"載入教師模型: {model_path}")
 
     device_context = torch.device('cpu')
-    teacher_model = VideoMAE(num_classes=num_classes)
     checkpoint = torch.load(model_path, map_location='cpu', weights_only=False)
+
+    if model_type == 'auto':
+        if 'dslnet' in model_path.lower() or 'teacher' in model_path.lower():
+            model_type = 'dslnet'
+        else:
+            model_type = 'videomae'
+
+    if model_type == 'dslnet':
+        if not DSLNET_AVAILABLE:
+            raise ImportError("DSLNet 模型不可用，請確保 models/teacher.py 存在")
+        print("使用 DSLNet 教師模型")
+        print("警告: DSLNet 需要骨架數據，無法直接用於視頻數據的知識蒸餾")
+        print("      如需使用 DSLNet 進行知識蒸餾，請使用 WLASLSkeletonDataset")
+        teacher_model = DSLNetWrapper(DSLNet(num_classes=num_classes))
+    elif model_type == 'videomae':
+        if not VIDEOMAE_AVAILABLE:
+            raise ImportError("VideoMAE 模型不可用，請確保 models/videomae.py 存在")
+        print("使用 VideoMAE 教師模型")
+        teacher_model = VideoMAE(num_classes=num_classes)
+    else:
+        raise ValueError(f"未知的模型類型: {model_type}")
 
     if 'model_state_dict' in checkpoint:
         teacher_model.load_state_dict(checkpoint['model_state_dict'])
@@ -52,6 +86,7 @@ def load_teacher_model(model_path, num_classes=2000):
         buffer.data = buffer.data.to(device_context)
 
     print("教師模型載入成功!")
+    print(f"教師模型類型: {model_type}")
     print(f"教師模型設備: {next(teacher_model.parameters()).device}")
     return teacher_model
 
@@ -77,7 +112,7 @@ def train_student_kd(config_path="configs/student.yaml"):
 
     config = load_config(config_path)
     print(f"載入配置: {config_path}")
-    device = config.get('device', 'cpu')  # 默認 CPU 以防萬一
+    device = config.get('device', 'cpu')  
     print(f"使用設備: {device}")
 
     teacher_model_path = config['model']['teacher_path']

@@ -35,7 +35,6 @@ class QuantizableStudentViT(nn.Module):
     def __init__(self, num_classes=2000):
         super(QuantizableStudentViT, self).__init__()
 
-        # 量化
         self.quant = QuantStub()
         self.dequant = DeQuantStub()
 
@@ -56,8 +55,7 @@ class QuantizableStudentViT(nn.Module):
         return outputs
 
     def fuse_model(self):
-        """融合模型中的 conv+bn+relu 層"""
-        print("融合模型層...")
+        print("fusing model layers...")
         for module_name, module in self.named_modules():
             if isinstance(module, nn.Conv2d) and "conv" in module_name:
                 bn_name = module_name.replace("conv", "batch_norm")
@@ -67,7 +65,7 @@ class QuantizableStudentViT(nn.Module):
                     torch.quantization.fuse_modules(
                         self, [[module_name, bn_name, relu_name]], inplace=True
                     )
-                    print(f"  融合: {module_name} + {bn_name} + {relu_name}")
+                    print(f"融合: {module_name} + {bn_name} + {relu_name}")
                 except:
                     pass  
 
@@ -79,7 +77,7 @@ class QATTrainer:
         self.device = device
 
     def prepare_qat(self):
-        print("準備量化感知訓練...")
+        print("準備QAT...")
 
         self.model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
 
@@ -87,11 +85,10 @@ class QATTrainer:
 
         torch.quantization.prepare_qat(self.model, inplace=True)
 
-        print("量化感知訓練準備完成")
+        print("QAT準備完成")
 
     def train_qat(self, epochs=10, lr=1e-5):
-        """執行量化感知訓練"""
-        print(f"開始量化感知訓練 {epochs} 個 epoch...")
+        print(f"開始QAT {epochs} 個 epoch...")
 
         optimizer = optim.AdamW(
             [p for n, p in self.model.named_parameters() if 'quant' in n or 'weight' in n],
@@ -134,7 +131,7 @@ class QATTrainer:
             if top1_acc > best_acc:
                 best_acc = top1_acc
 
-        print(f"量化感知訓練完成，最佳準確度: {best_acc:.2f}%")
+        print(f"QAT完成，最佳準確度: {best_acc:.2f}%")
         return best_acc
 
     def evaluate(self):
@@ -296,8 +293,10 @@ def main():
         img_size=config.get('input', {}).get('img_size', 224)
     )
 
+    from data_pro.sampler import BalancedSampler
+    train_sampler = BalancedSampler(train_dataset, strategy='even')
     train_loader = DataLoader(train_dataset, batch_size=config['training']['batch_size'],
-                            shuffle=True, num_workers=2)
+                            sampler=train_sampler, num_workers=2)
     val_loader = DataLoader(val_dataset, batch_size=config['training']['batch_size'],
                           shuffle=False, num_workers=2)
 

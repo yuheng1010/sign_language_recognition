@@ -7,11 +7,6 @@ from collections import defaultdict
 import copy
 
 class ModelPruner:
-    """
-    學生模型剪枝
-    支持多種剪枝策略和粒度
-    """
-
     def __init__(self, model: nn.Module, device: str = 'cpu'):
         self.model = model.to(device)
         self.device = device
@@ -26,13 +21,7 @@ class ModelPruner:
         return (tensor == 0).float().mean().item()
 
     def global_pruning(self, amount: float = 0.2, method: str = 'l1_unstructured'):
-        """
-        全域剪枝：對整個模型進行統一剪枝
-        Args:
-            amount: 剪枝比例 (0-1)
-            method: 剪枝方法 ('l1_unstructured', 'l2_unstructured', 'random_unstructured')
-        """
-        print(f"開始全域剪枝: {method}, 剪枝比例: {amount:.1%}")
+        print(f"開始全域pruning: {method}, 剪枝比例: {amount:.1%}")
 
         parameters_to_prune = []
         for name, module in self.model.named_modules():
@@ -55,13 +44,7 @@ class ModelPruner:
         print(f"全域剪枝完成，全局稀疏度: {self.get_model_sparsity():.1%}")
 
     def layer_wise_pruning(self, layer_amounts: Dict[str, float], method: str = 'l1_unstructured'):
-        """
-        層級剪枝：對指定層進行不同比例的剪枝
-        Args:
-            layer_amounts: {layer_name: pruning_amount} 字典
-            method: 剪枝方法
-        """
-        print(f"開始層級剪枝: {method}")
+        print(f"開始layer剪枝: {method}")
 
         for layer_name, amount in layer_amounts.items():
             if layer_name in dict(self.model.named_modules()):
@@ -78,14 +61,6 @@ class ModelPruner:
 
     def iterative_pruning(self, target_sparsity: float, iterations: int = 3,
                          method: str = 'l1_unstructured', fine_tune_epochs: int = 1):
-        """
-        迭代剪枝：逐步增加剪枝比例並微調
-        Args:
-            target_sparsity: 目標稀疏度
-            iterations: 迭代次數
-            method: 剪枝方法
-            fine_tune_epochs: 每次迭代的微調輪數
-        """
         print(f"開始迭代剪枝，目標稀疏度: {target_sparsity:.1%}, 迭代次數: {iterations}")
 
         current_sparsity = 0.0
@@ -94,7 +69,7 @@ class ModelPruner:
             iteration_amount = remaining_sparsity / (iterations - i)
 
             print(f"迭代 {i+1}/{iterations}, 當前稀疏度: {current_sparsity:.1%}, "
-                  f"本次剪枝比例: {iteration_amount:.1%}")
+                  f"剪枝比例: {iteration_amount:.1%}")
 
             self.global_pruning(amount=iteration_amount, method=method)
             current_sparsity = self.get_model_sparsity()
@@ -126,11 +101,11 @@ class ModelPruner:
         return layer_sparsity
 
     def remove_pruning_masks(self):
-        print("移除剪枝掩碼...")
+        print("removing pruning masks...")
         for name, module in self.model.named_modules():
             if hasattr(module, 'weight') and hasattr(module, 'weight_mask'):
                 prune.remove(module, 'weight')
-        print("剪枝掩碼已移除")
+        print("pruning masks removed")
 
     def restore_original_model(self):
         print("恢復原始模型...")
@@ -151,7 +126,7 @@ class ModelPruner:
 
         torch.save(save_dict, path)
         print(f"剪枝模型已保存到: {path}")
-        print(f"模型稀疏度: {self.get_model_sparsity():.1%}")
+        print(f"model sparsity: {self.get_model_sparsity():.1%}")
 
 def load_pruned_model(model_class, path: str, device: str = 'cpu') -> Tuple[nn.Module, Dict]:
     checkpoint = torch.load(path, map_location=device, weights_only=False)
@@ -166,16 +141,13 @@ def load_pruned_model(model_class, path: str, device: str = 'cpu') -> Tuple[nn.M
         'layer_sparsity': checkpoint.get('layer_sparsity', {}),
     }
 
-    print(f"載入剪枝模型: {path}")
-    print(f"模型稀疏度: {metadata['model_sparsity']:.1%}")
+    print(f"loading pruned model: {path}")
+    print(f"model sparsity: {metadata['model_sparsity']:.1%}")
 
     return model, metadata
 
 def apply_magnitude_pruning(model: nn.Module, pruning_ratio: float = 0.2):
-    """
-    移除最小的權重
-    """
-    print(f"應用幅度剪枝，剪枝比例: {pruning_ratio:.1%}")
+    print(f"applying magnitude pruning, pruning ratio: {pruning_ratio:.1%}")
 
     for name, module in model.named_modules():
         if hasattr(module, 'weight') and module.weight.requires_grad:
@@ -190,5 +162,5 @@ def apply_magnitude_pruning(model: nn.Module, pruning_ratio: float = 0.2):
     sparsity = sum((param == 0).float().mean().item() for param in model.parameters()
                    if param.requires_grad) / sum(1 for param in model.parameters() if param.requires_grad)
 
-    print(f"幅度剪枝完成，稀疏度: {sparsity:.1%}")
+    print(f"magnitude pruning completed, sparsity: {sparsity:.1%}")
     return model

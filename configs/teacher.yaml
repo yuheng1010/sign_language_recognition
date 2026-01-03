@@ -1,55 +1,52 @@
 data:
   root_dir: "./wlasl_data/videos"
-  json_file: "./wlasl_data/nslt_100.json"  
+  json_file: "./wlasl_data/WLASL_v0.3_with_skeleton.json"  
   label_file: "./wlasl_data/wlasl_class_list.txt"
+  subset: 100 
 
 model:
-  name: "MCG-NJU/videomae-base-finetuned-kinetics"
+  name: "DSLNet"
   num_classes: 100  
-  pretrained: true
+  in_channels: 3
+  num_joints: 21
 
 input:
   num_frames: 16    
-  img_size: 224     
-  num_channels: 3   
+  coord_normalize: true
+  sampling_strategy: "even"  #均勻||連續
 
 training:
-  epochs: 50
-  batch_size: 8      
-  learning_rate: 0.0001
-  weight_decay: 0.05
-  warmup_epochs: 5
-  scheduler: "cosine"  # cosine 或 linear
+  epochs: 120
+  batch_size: 32     
+  learning_rate: 0.001 
+  weight_decay: 0.01
+  warmup_epochs: 5    
+  scheduler: "cosine"
+  alpha_geo: 0.05     
+  gradient_clip: 1.0
 
 optimizer:
   name: "adamw"
   betas: [0.9, 0.999]
-  eps: 0.00000001
-
+  eps: 1e-8
+#這邊都沒用augmentation是怕破壞骨架結構
 augmentation:
-  random_crop: true
-  random_flip: false  
-  color_jitter: false 
-  normalize: true
+  random_rotate: false   
+  random_scale: false    
+  gaussian_noise: 0.001  
+  temporal_stretch: false 
 
 evaluation:
-  top_k: [1, 5] 
+  top_k: [1, 5, 10] 
 
 device: "auto"  
 
 save:
-  model_path: "./best_videomae_wlasl_teacher_100.pth"
-  checkpoint_freq: 10 
-  save_optimizer: true
-  save_scheduler: true
-
-logging:
-  log_dir: "./logs/teacher"
-  log_freq: 10 
-  save_freq: 50 
+  model_path: "./checkpoints/dslnet_wlasl_100_best.pth"
+  checkpoint_freq: 20 
 
 validation:
   freq: 1 
   early_stopping:
-    patience: 10
-    min_delta: 0.001
+    patience: 25
+    min_delta: 0.0001

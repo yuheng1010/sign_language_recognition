@@ -5,14 +5,14 @@ data:
 
 
 model:
-  teacher_path: "./best_videomae_wlasl_teacher_100.pth"  
+  teacher_path: "./checkpoints/dslnet_wlasl_100_best.pth"  
   student_model: "apple/mobilevit-small"
   num_classes: 100  
 
 
 distillation:
   temperature: 4.0     
-  alpha: 0.5          
+  alpha: 0.7          
   loss_type: "kl_div" 
 
 input:
@@ -52,7 +52,7 @@ evaluation:
 device: "auto"
 
 save:
-  model_path: "./best_videomae_wlasl_student_kd_100.pth"
+  model_path: "./checkpoints/student_vit_wlasl_100_best.pth"
   checkpoint_freq: 5
   save_optimizer: true
   save_scheduler: true

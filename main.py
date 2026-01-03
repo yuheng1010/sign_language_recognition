@@ -1,21 +1,3 @@
-"""
-WLASL 手語識別模型壓縮框架主入口
-
-這個框架實現了完整的模型壓縮流程：
-1. 教師模型訓練 (VideoMAE)
-2. 知識蒸餾 (VideoMAE -> MobileViT)
-3. 模型剪枝 (MobileViT pruning)
-4. 量化感知訓練 (QAT)
-
-使用方法:
-    python main.py --stage teacher                    # 訓練教師模型
-    python main.py --stage student                    # 知識蒸餾
-    python main.py --stage prune                      # 模型剪枝
-    python main.py --stage qat                        # 量化訓練
-    python main.py --all                              # 運行完整流程
-    python main.py --stage teacher --resume           # 從ckpt恢復
-"""
-
 import os
 import sys
 import argparse
@@ -23,7 +5,7 @@ import yaml
 import torch
 import subprocess
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 project_root = Path(__file__).parent
 sys.path.append(str(project_root))
@@ -87,8 +69,6 @@ def check_requirements():
     return True
 
 def run_stage(stage: str, config_path: str, resume: bool = False, **kwargs):
-    """運行指定的訓練階段"""
-
     print(f"\n{'='*60}")
     print(f"開始執行階段: {stage.upper()}")
     print(f"{'='*60}")
@@ -114,9 +94,9 @@ def run_stage(stage: str, config_path: str, resume: bool = False, **kwargs):
         raise ValueError(f"未知的階段: {stage}")
 
 def run_teacher_training(config: Dict[str, Any], resume: bool, **kwargs):
-    print("訓練教師模型 (VideoMAE)")
+    print("訓練教師模型")
 
-    save_path = config['save'].get('model_path', './best_videomae_wlasl_teacher.pth')
+    save_path = config['save'].get('model_path', './checkpoints/dslnet_wlasl_100_best.pth')
     if os.path.exists(save_path) and not resume:
         response = input(f"教師模型已存在: {save_path}\n是否要重新訓練? (y/n): ")
         if response.lower() != 'y':
@@ -141,14 +121,14 @@ def run_teacher_training(config: Dict[str, Any], resume: bool, **kwargs):
         return False
 
 def run_student_distillation(config: Dict[str, Any], resume: bool, **kwargs):
-    print("知識蒸餾訓練 (VideoMAE -> MobileViT)")
-    teacher_path = config['model'].get('teacher_path', './best_videomae_wlasl_teacher.pth')
+    print("知識蒸餾訓練 ")
+    teacher_path = config['model'].get('teacher_path', './checkpoints/dslnet_wlasl_100_best.pth')
     if not os.path.exists(teacher_path):
         print(f"找不到教師模型: {teacher_path}")
         print("請先運行教師模型訓練")
         return False
 
-    save_path = config['save'].get('model_path', './best_videomae_wlasl_student_kd_100.pth')
+    save_path = config['save'].get('model_path', './checkpoints/student_vit_wlasl_100_best.pth')
     if os.path.exists(save_path) and not resume:
         response = input(f"學生模型已存在: {save_path}\n是否要重新訓練? (y/n): ")
         if response.lower() != 'y':
@@ -188,7 +168,7 @@ def run_student_distillation(config: Dict[str, Any], resume: bool, **kwargs):
 def run_model_pruning(config: Dict[str, Any], **kwargs):
     print("模型剪枝 (MobileViT)")
 
-    input_path = config['model'].get('input_path', './best_videomae_wlasl_student_kd_100.pth')
+    input_path = config['model'].get('input_path', './checkpoints/student_vit_wlasl_100_best.pth')
     if not os.path.exists(input_path):
         print(f"找不到輸入模型: {input_path}")
         print("請先運行學生模型訓練")
@@ -226,9 +206,9 @@ def run_model_pruning(config: Dict[str, Any], **kwargs):
 def run_quantization_training(config: Dict[str, Any], **kwargs):
     print("量化感知訓練 (QAT)")
 
-    input_path = config['model'].get('input_path', './best_videomae_wlasl_student_pruned_100.pth')
+    input_path = config['model'].get('input_path', './checkpoints/student_vit_wlasl_100_best.pth')
     if not os.path.exists(input_path):
-        alt_path = './best_videomae_wlasl_student_kd_100.pth'
+        alt_path = './checkpoints/student_vit_wlasl_100_best.pth'
         if os.path.exists(alt_path):
             print(f"找不到剪枝模型，使用學生模型: {alt_path}")
             input_path = alt_path
@@ -236,7 +216,6 @@ def run_quantization_training(config: Dict[str, Any], **kwargs):
             print(f"找不到輸入模型: {input_path}")
             return False
 
-    # 構建命令
     cmd = [
         sys.executable, "models/train_qat.py",
         "--model_path", input_path,
@@ -299,10 +278,10 @@ def print_compression_summary():
     print("\n模型壓縮總結")
 
     models_info = [
-        ("教師模型", "./best_videomae_wlasl_teacher_100.pth"),
-        ("學生模型", "./best_videomae_wlasl_student_kd_100.pth"),
-        ("剪枝模型", "./best_videomae_wlasl_student_pruned_100.pth"),
-        ("量化模型", "./best_videomae_wlasl_student_qat_100.pth")
+        ("教師模型", "./checkpoints/dslnet_wlasl_100_best.pth"),
+        ("學生模型", "./checkpoints/student_vit_wlasl_100_best.pth"),
+        ("剪枝模型", "./checkpoints/student_vit_wlasl_100_best.pth"),
+        ("量化模型", "./checkpoints/student_vit_wlasl_100_best.pth")
     ]
 
     print("-" * 50)
@@ -322,21 +301,8 @@ def print_compression_summary():
 def main():
     parser = argparse.ArgumentParser(
         description="WLASL 手語識別模型壓縮框架",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-使用示例:
-  # 單個階段
-  python main.py --stage teacher
-  python main.py --stage student --resume
-  python main.py --stage prune
-  python main.py --stage qat
-
-  # 完整流程
-  python main.py --all
-
-  # 自定義配置
-  python main.py --stage teacher --config my_config.yaml
-        """
+        formatter_class=argparse.RawDescriptionHelpFormatter
+        
     )
 
     parser.add_argument('--stage', choices=['teacher', 'student', 'prune', 'qat'],
