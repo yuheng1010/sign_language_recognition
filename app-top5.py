@@ -9,10 +9,9 @@ import time
 from collections import deque
 from labels import gloss_dict
 
-# 引入剛剛建立的網頁伺服器模組
 from web_server import SignLanguageWebServer
 
-# ================= 1. TensorRT 引擎類別 (保持不變) =================
+# ================= 1. TensorRT 引擎類別 =================
 class SignLanguageModel:
     def __init__(self, engine_path):
         self.logger = trt.Logger(trt.Logger.WARNING)
@@ -52,33 +51,86 @@ class SignLanguageModel:
                 self.outputs.append(binding)
 
     def infer(self, input_shape_data, input_traj_data):
+        # 確保數據展平並複製到 Host Memory
         np.copyto(self.inputs[0]['host'], input_shape_data.ravel())
         np.copyto(self.inputs[1]['host'], input_traj_data.ravel())
 
+        # Host -> Device
         for inp in self.inputs:
             cuda.memcpy_htod_async(inp['device'], inp['host'], self.stream)
 
+        # Execute
         self.context.execute_async_v2(bindings=self.allocations, stream_handle=self.stream.handle)
 
+        # Device -> Host
         for out in self.outputs:
             cuda.memcpy_dtoh_async(out['host'], out['device'], self.stream)
 
         self.stream.synchronize()
         return self.outputs[0]['host']
 
-# ================= 2. 輔助函式 (新增 Softmax) =================
+# ================= 2. 數據處理與正規化 =================
+
+def normalize_skeleton_wrist_centric(skeleton: np.ndarray) -> np.ndarray:
+    """
+    將骨架座標轉換為以手腕為中心，並根據手指長度進行縮放。
+    Input: (T, 21, 3)
+    Output: (T, 21, 3)
+    """
+    # 1. 以手腕 (index 0) 為中心
+    wrist_positions = skeleton[:, 0, :]  # (T, 3)
+    wrist_centric = skeleton - wrist_positions[:, None, :]  # (T, 21, 3)
+
+    # 2. 縮放 (使用 index 4 拇指尖 和 index 8 食指尖 的距離作為參考)
+    if skeleton.shape[1] >= 9:
+        diff = wrist_centric[:, 4, :] - wrist_centric[:, 8, :]  # (T, 3)
+        scale_ref = np.linalg.norm(diff, axis=-1, keepdims=True)  # (T, 1)
+        scale_ref = np.maximum(scale_ref, 1e-6) # 防止除以 0
+        wrist_centric = wrist_centric / scale_ref[:, :, None]  # (T, 21, 3)
+
+    # 3. 數值截斷，保持在合理範圍
+    wrist_centric = np.clip(wrist_centric, -2.0, 2.0)
+    return wrist_centric.astype(np.float32)
+
+def normalize_traj_delta_scaled(skeleton_raw: np.ndarray) -> np.ndarray:
+    """
+    計算手腕相對於第一幀的移動軌跡，並進行縮放。
+    Input: (T, 21, 3) - 原始座標
+    Output: (T, 3) - 軌跡向量
+    """
+    wrist = skeleton_raw[:, 0, :]  # (T,3) 每一幀的手腕座標
+    base = wrist[0:1, :]           # (1,3) 第一幀的手腕座標 (基準點)
+    delta = wrist - base           # (T,3) 相對位移
+
+    # 計算整個序列的平均縮放比例
+    if skeleton_raw.shape[1] >= 9:
+        diff = skeleton_raw[:, 4, :] - skeleton_raw[:, 8, :]  # (T,3)
+        scale = np.linalg.norm(diff, axis=-1, keepdims=True)  # (T,1)
+        scale = np.maximum(scale, 1e-6)
+        scale_mean = float(np.mean(scale))
+    else:
+        scale_mean = 1.0
+    
+    scale_mean = max(scale_mean, 1e-6)
+
+    traj = delta / scale_mean
+    traj = np.clip(traj, -2.0, 2.0)
+    return traj.astype(np.float32)
 
 def process_landmarks(results):
+    """
+    從 MediaPipe 結果提取原始座標 (不進行平均或預處理，保留原始數據給正規化函式用)。
+    """
     if results.multi_hand_landmarks:
         hand_landmarks = results.multi_hand_landmarks[0]
         coords = []
         for lm in hand_landmarks.landmark:
             coords.append([lm.x, lm.y, lm.z])
         coords = np.array(coords, dtype=np.float32)
-        center = np.mean(coords, axis=0)
-        return coords, center
+        return coords
     else:
-        return np.zeros((21, 3), dtype=np.float32), np.zeros((3,), dtype=np.float32)
+        # 若沒偵測到手，回傳全 0
+        return np.zeros((21, 3), dtype=np.float32)
 
 def get_label_text(class_id):
     label = gloss_dict.get(class_id)
@@ -87,10 +139,9 @@ def get_label_text(class_id):
     else:
         return f"Unknown ID: {class_id}"
 
-# [新增] Softmax 函式：將 Logits 轉為機率
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x)) # 減去最大值是為了數值穩定性，防止溢位
+    e_x = np.exp(x - np.max(x))
     return e_x / e_x.sum()
 
 # ================= 3. 主程式邏輯 =================
@@ -98,7 +149,7 @@ def softmax(x):
 def main():
     # --- 設定 ---
     ENGINE_PATH = "model.engine"
-    WINDOW_SIZE = 16
+    WINDOW_SIZE = 16  # 必須與 export_onnx.py 的 num_frames 一致
 
     web_server = SignLanguageWebServer()
     web_server.start(port=5000)
@@ -119,13 +170,13 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-    shape_buffer = deque(maxlen=WINDOW_SIZE)
-    traj_buffer = deque(maxlen=WINDOW_SIZE)
+    # [修改] 只使用一個 Buffer 儲存原始座標 (T, 21, 3)
+    raw_buffer = deque(maxlen=WINDOW_SIZE)
 
     print("初始化緩衝區...")
+    # 先填入零，避免剛啟動時 buffer 不足
     for _ in range(WINDOW_SIZE):
-        shape_buffer.append(np.zeros((21, 3), dtype=np.float32))
-        traj_buffer.append(np.zeros((3,), dtype=np.float32))
+        raw_buffer.append(np.zeros((21, 3), dtype=np.float32))
 
     print("系統就緒! 按 'q' 離開")
 
@@ -137,47 +188,51 @@ def main():
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = hands.process(frame_rgb)
 
-        coords, center = process_landmarks(results)
+        # 1. 取得原始座標 (21, 3)
+        coords = process_landmarks(results)
+        
+        # 2. 加入 Buffer
+        raw_buffer.append(coords)
 
-        shape_buffer.append(coords)
-        traj_buffer.append(center)
+        # 3. 在推論前進行正規化 (Normalization)
+        # 將 deque 轉為 numpy array: (T, 21, 3)
+        sk_raw = np.array(raw_buffer, dtype=np.float32)
 
-        input_shape = np.array(shape_buffer, dtype=np.float32)[np.newaxis, ...]
-        input_traj = np.array(traj_buffer, dtype=np.float32)[np.newaxis, ...]
+        # 計算 shape: 以手腕為中心 + 縮放
+        sk_norm = normalize_skeleton_wrist_centric(sk_raw)  # Output: (T, 21, 3)
+        
+        # 計算 trajectory: 相對第一幀的位移 + 縮放
+        traj_norm = normalize_traj_delta_scaled(sk_raw)     # Output: (T, 3)
+
+        # 4. 增加 Batch 維度 (B, T, ...)
+        input_shape = sk_norm[np.newaxis, ...]  # (1, 16, 21, 3)
+        input_traj = traj_norm[np.newaxis, ...] # (1, 16, 3)
 
         # --- TensorRT 推論 ---
         logits = trt_model.infer(input_shape, input_traj)
         
-        # [修改] 套用 Softmax 取得機率分布
+        # 套用 Softmax
         probs = softmax(logits)
 
-        # [修改] 取得 Top 5 的索引 (由大到小排序)
-        # argsort 會回傳索引，[::-1] 反轉變成由大到小，[:5] 取前五個
+        # 取得 Top 5
         top5_indices = np.argsort(probs)[::-1][:5]
 
-        # 準備要傳給 Web 的字串列表
-        web_display_list = []
-
-        # --- 顯示畫面與資料處理 ---
+        # --- 顯示與 Web 更新 ---
         fps = 1.0 / (time.time() - start_time)
+        web_display_list = []
 
         if results.multi_hand_landmarks:
             for hand_lms in results.multi_hand_landmarks:
                 mp_draw.draw_landmarks(frame, hand_lms, mp_hands.HAND_CONNECTIONS)
 
-        # [修改] 迴圈印出前五名
-        base_y = 50 # 第一行的 Y 座標
+        base_y = 50
         for i, idx in enumerate(top5_indices):
             score = probs[idx]
             label_text = get_label_text(idx)
             
-            # 格式化顯示文字 e.g., "1. 105: Hello (85.2%)"
             display_text = f"{i+1}. {label_text} ({score:.1%})"
-            
-            # 加入 Web 顯示列表
             web_display_list.append(display_text)
 
-            # 根據排名改變顏色 (第一名綠色，其他黃色)
             color = (0, 255, 0) if i == 0 else (0, 255, 255)
             font_scale = 0.8 if i == 0 else 0.6
             thickness = 2 if i == 0 else 1
@@ -187,9 +242,6 @@ def main():
 
         cv2.putText(frame, f"FPS: {fps:.1f}", (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
 
-        # --- 上傳結果到網頁 ---
-        # 將 Top 5 用 HTML 的換行符號 <br> 連接，或者用逗號連接，視你的網頁端如何顯示
-        # 這裡示範用 " | " 連接成一行字串
         web_message = " <br> ".join(web_display_list)
         web_server.update_inference_result(web_message)
 
