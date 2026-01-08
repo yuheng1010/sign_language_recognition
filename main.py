@@ -20,9 +20,9 @@ def save_config(config: Dict[str, Any], config_path: str):
 
 def get_device(device_config: str, stage: str = None) -> str:
     if device_config == "auto":
-        if stage == "student":
-            #KD因VideoMAE Conv3D兼容性問題 強制使用CPU!!!
-            return "cpu"
+        # if stage == "student":
+        #     #KD因VideoMAE Conv3D兼容性問題 強制使用CPU!!!
+        #     return "cpu"
 
         if torch.cuda.is_available():
             return "cuda"
@@ -104,7 +104,7 @@ def run_teacher_training(config: Dict[str, Any], resume: bool, **kwargs):
             return True
 
     cmd = [
-        sys.executable, "training/train_teacher.py"
+        sys.executable, "training/train_dsl.py"
     ]
 
     if resume:
@@ -166,16 +166,29 @@ def run_student_distillation(config: Dict[str, Any], resume: bool, **kwargs):
             pass
 
 def run_model_pruning(config: Dict[str, Any], **kwargs):
-    print("模型剪枝 (MobileViT)")
+    # 根據模型路徑判斷模型類型
+    input_path = config['model'].get('input_path', './checkpoints/dslnet_wlasl_100_best.pth')
+    if 'dslnet' in input_path.lower():
+        model_type = 'dslnet'
+        print("模型剪枝 (DSLNet)")
+    elif 'student' in input_path.lower() or 'vit' in input_path.lower():
+        model_type = 'student'
+        print("模型剪枝 (StudentViT)")
+    else:
+        # 默認使用 DSLNet
+        model_type = 'dslnet'
+        print("模型剪枝 (默認 DSLNet)")
 
-    input_path = config['model'].get('input_path', './checkpoints/student_vit_wlasl_100_best.pth')
     if not os.path.exists(input_path):
         print(f"找不到輸入模型: {input_path}")
-        print("請先運行學生模型訓練")
+        if model_type == 'dslnet':
+            print("請先運行教師模型訓練")
+        else:
+            print("請先運行學生模型訓練")
         return False
 
     cmd = [
-        sys.executable, "training/prune_student.py",
+        sys.executable, "training/prune_model.py",
         "--model_path", input_path,
         "--pruning_ratio", str(config['pruning']['target_sparsity']),
         "--pruning_method", config['pruning']['global']['pruning_method']
@@ -206,9 +219,9 @@ def run_model_pruning(config: Dict[str, Any], **kwargs):
 def run_quantization_training(config: Dict[str, Any], **kwargs):
     print("量化感知訓練 (QAT)")
 
-    input_path = config['model'].get('input_path', './checkpoints/student_vit_wlasl_100_best.pth')
+    input_path = config['model'].get('input_path', './checkpoints/dslnet_wlasl_100_best_pruned.pth')
     if not os.path.exists(input_path):
-        alt_path = './checkpoints/student_vit_wlasl_100_best.pth'
+        alt_path = './checkpoints/dslnet_wlasl_100_best_pruned.pth'
         if os.path.exists(alt_path):
             print(f"找不到剪枝模型，使用學生模型: {alt_path}")
             input_path = alt_path
@@ -280,8 +293,8 @@ def print_compression_summary():
     models_info = [
         ("教師模型", "./checkpoints/dslnet_wlasl_100_best.pth"),
         ("學生模型", "./checkpoints/student_vit_wlasl_100_best.pth"),
-        ("剪枝模型", "./checkpoints/student_vit_wlasl_100_best.pth"),
-        ("量化模型", "./checkpoints/student_vit_wlasl_100_best.pth")
+        ("剪枝模型", "./checkpoints/dslnet_wlasl_100_best_pruned.pth"),
+        ("量化模型", "./checkpoints/dslnet_wlasl_100_best_qat.pth")
     ]
 
     print("-" * 50)

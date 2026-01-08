@@ -1,46 +1,66 @@
 model:
-  input_path: "./best_videomae_wlasl_student_kd_100.pth"
-  output_path: "./best_videomae_wlasl_student_pruned_100.pth"
-  model_type: "mobilevit"
+  input_path: "./checkpoints/dslnet_wlasl_100_best_converted.pth"
+  output_path: "./checkpoints/dslnet_wlasl_100_best_pruned.pth"
+  model_type: "dslnet"
   num_classes: 100  
 
 data:
   root_dir: "./wlasl_data/videos"
-  json_file: "./wlasl_data/nslt_100.json"
-  eval_samples: 1000 
+  json_file: "./wlasl_data/wlasl100_converted/WLASL100_converted.json"
+  label_file: "./wlasl_data/wlasl_class_list.txt"
+
 
 pruning:
-  method: "iterative"  # iterative, global, layer_wise
-  target_sparsity: 0.3  
-  iterations: 3      
+  method: "structured_layer_wise"  # pipeline: structured -> layer_wise (unstructured)
+  target_sparsity: 0.3
+  iterations: 3
 
+  structured:
+    embed_dim: 240  
 
   global:
-    pruning_method: "l1_unstructured"  # l1_unstructured, l2_unstructured, random_unstructured
+    pruning_method: "l1_unstructured"
     amount: 0.3
 
-
   layer_wise:
-    enabled: false
+    enabled: true
     layers:
-      # 為特定層設置不同的剪枝比例
-      # "backbone.layer.0": 0.2
-      # "backbone.layer.1": 0.3
+      # stream_shape (TSSNStream)
+      "stream_shape.spatial_embed.0": 0.05    # Linear(63, 128)
+      "stream_shape.spatial_embed.4": 0.05    # Linear(128, 64)
+      "stream_shape.temporal_encoder.0.conv": 0.2   # Conv1d
+      "stream_shape.temporal_encoder.1.conv": 0.2   # Conv1d
+      
+      # stream_traj (FTDEStream)
+      "stream_traj.embed.0": 0.15             # Linear(3, 64)
+      "stream_traj.temporal_encoder.0.conv": 0.2    # Conv1d
+      "stream_traj.temporal_encoder.1.conv": 0.2    # Conv1d
+      
+      # attention 融合層
+      "attention.0": 0.2                      # Linear(128, 32)
+      "attention.2": 0.2                      # Linear(32, 128)
+      
+      # classifier 分類器
+      "classifier.0": 0.2                     # Linear(128, 64)
+      "classifier.4": 0.2                     # Linear(64, 100)
 
 
   iterative:
-    enabled: true
+    enabled: false  # 禁用迭代剪枝，使用一次性剪枝
     iterations: 3
-    fine_tune_epochs: 5  
+    fine_tune_epochs: 5
     fine_tune_lr: 1e-5
 
 
 fine_tune:
   enabled: true
-  epochs: 5
+  epochs: 30
   learning_rate: 0.00001
   weight_decay: 0.0001
-  batch_size: 16
+  device: "cpu"
+
+training:
+  batch_size: 32
 
 
 evaluation:
@@ -58,6 +78,8 @@ strategy:
 
 device: "auto"
 
+save:
+  pruned_model_path: "./checkpoints/dslnet_wlasl_100_best_pruned.pth"
 
 logging:
   log_dir: "./logs/pruning"

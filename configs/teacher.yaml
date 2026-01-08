@@ -1,52 +1,70 @@
 data:
   root_dir: "./wlasl_data/videos"
-  json_file: "./wlasl_data/WLASL_v0.3_with_skeleton.json"  
+  json_file: "./wlasl_data/wlasl100_converted/WLASL100_converted.json"
   label_file: "./wlasl_data/wlasl_class_list.txt"
-  subset: 100 
+  subset: 100
+  nonzero_eps: 1e-6
+  quality_filter:
+    enabled: true
+    apply_to: ["val"]
+    min_shape_nonzero_ratio: 0.35
+    max_traj_zero_ratio: 0.70
 
 model:
   name: "DSLNet"
-  num_classes: 100  
-  in_channels: 3
+  num_classes: 100
   num_joints: 21
+  embed_dim: 256
+  dropout_p: 0.5
+  drop_path: 0.15       
 
 input:
-  num_frames: 16    
-  coord_normalize: true
-  sampling_strategy: "even"  #均勻||連續
-
+  num_frames: 64       
+  fill_missing_frames: true
+  traj_normalize: true  
 training:
-  epochs: 120
-  batch_size: 32     
-  learning_rate: 0.001 
-  weight_decay: 0.01
-  warmup_epochs: 5    
-  scheduler: "cosine"
-  alpha_geo: 0.05     
+  epochs: 200
+  batch_size: 32
+  learning_rate: 0.0005
+  weight_decay: 0.002
+  label_smoothing: 0.1
+  mixup_alpha: 0.15            
+  use_balanced_sampler: true 
+  sampler_strategy: "even"
   gradient_clip: 1.0
+  alpha_geo: 0.03            
+  warmup_epochs: 5           
+  use_ema: false             
+  ema_decay: 0.999
+  swa:                       
+    enabled: true
+    start_epoch: 170
+    anneal_epochs: 10
+    lr: 0.0005
 
 optimizer:
   name: "adamw"
   betas: [0.9, 0.999]
   eps: 1e-8
-#這邊都沒用augmentation是怕破壞骨架結構
-augmentation:
-  random_rotate: false   
-  random_scale: false    
-  gaussian_noise: 0.001  
-  temporal_stretch: false 
 
-evaluation:
+augmentation:
+  random_rotate: false
+  random_scale: false
+  temporal_shift: false      
+  flip_x: false              
+  gaussian_noise: 0.05      
+
+evaluation: 
   top_k: [1, 5, 10] 
 
 device: "auto"  
 
 save:
-  model_path: "./checkpoints/dslnet_wlasl_100_best.pth"
+  model_path: "./checkpoints/dslnet_wlasl_100_best_converted.pth"
   checkpoint_freq: 20 
 
 validation:
   freq: 1 
   early_stopping:
-    patience: 25
+    patience: 40
     min_delta: 0.0001

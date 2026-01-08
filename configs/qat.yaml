@@ -1,18 +1,18 @@
 model:
-  input_path: "./best_videomae_wlasl_student_pruned_100.pth"  
-  output_path: "./best_videomae_wlasl_student_qat_100.pth"
-  model_type: "mobilevit"
+  input_path: "./checkpoints/dslnet_wlasl_100_best_pruned.pth"
+  output_path: "./checkpoints/dslnet_wlasl_100_best_qat.pth"
   num_classes: 100
-
+  num_joints: 21
+  embed_dim: 48  
 quantization:
-  backend: "fbgemm"     # fbgemm (x86), qnnpack (ARM)
+  backend: "qnnpack"    # qnnpack (ARM/mobile), fbgemm (x86)
   dtype: "qint8"       
   scheme: "per_channel" # per_channel || per_tensor
-
+  mode: "dynamic"       
 
   qat:
-    enabled: true
-    qconfig_name: "default"  
+    enabled: false      
+    qconfig_name: "default"
 
   observer:
     type: "moving_average_min_max"  
@@ -21,15 +21,20 @@ quantization:
 
 data:
   root_dir: "./wlasl_data/videos"
-  json_file: "./wlasl_data/nslt_100.json"
-  calibration_samples: 1000  
-  eval_samples: 2000       
+  json_file: "./wlasl_data/wlasl100_converted/WLASL100_converted.json"
+  calibration_samples: 500
+  eval_samples: 1000
 
 training:
   epochs: 10          
-  batch_size: 32      
+  batch_size: 16      
   learning_rate: 1e-5 
   weight_decay: 1e-4
+
+input:
+  num_frames: 32
+  fill_missing_frames: true
+  traj_normalize: true
 
 optimizer:
   name: "adamw"
@@ -58,12 +63,12 @@ benchmark:
   num_runs: 100
   warmup_runs: 10
 
-device: "auto"
+device: "cpu"  
 
 save:
-  model_path: "./best_videomae_wlasl_student_qat.pth"
-  save_quantized: true    
-  save_scripted: true     
+  output_path: "./checkpoints/dslnet_wlasl_100_best_qat.pth"
+  save_quantized: true
+  save_scripted: true
   save_onnx: false        
 
 logging:
